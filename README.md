@@ -201,6 +201,41 @@ Open `http://localhost:8501` in your browser.
 
 ---
 
+## 🌐 Deployment Guide
+
+### Option 1: Streamlit Community Cloud (Recommended • 100% Free • 1-Click)
+Because `frontend/app.py` features an intelligent in-process execution fallback, the application can run standalone directly on Streamlit Cloud without needing any external infrastructure:
+1. Go to [share.streamlit.io](https://share.streamlit.io).
+2. Sign in with your GitHub account (`SweetGiraffo`).
+3. Click **"New app"**.
+4. Configure:
+   - **Repository**: `SweetGiraffo/correctiverag`
+   - **Branch**: `main`
+   - **Main file path**: `frontend/app.py`
+5. Click **"Deploy!"** — your app is live on a public `*.streamlit.app` URL within minutes!
+
+---
+
+### Option 2: Docker & Docker Compose (Self-Hosted / Render / Railway)
+Run both the FastAPI backend and Streamlit frontend in isolated containers:
+```bash
+# Build and run multi-container stack
+docker compose up -d
+
+# Frontend will be on http://localhost:8501
+# Backend will be on http://localhost:8000
+```
+
+---
+
+### Option 3: Hugging Face Spaces (Free Cloud Hosting)
+1. Go to [huggingface.co/spaces](https://huggingface.co/spaces) and click **"Create new Space"**.
+2. Select **Streamlit** SDK.
+3. Link your GitHub repository `SweetGiraffo/correctiverag` or push directly.
+4. The space will automatically install `requirements.txt` and launch `frontend/app.py`.
+
+---
+
 ## 🎯 Interview Talking Points ("CV Highlights")
 
 When explaining this project in technical interviews:

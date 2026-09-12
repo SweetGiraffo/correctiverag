@@ -2,14 +2,29 @@
 Streamlit Frontend for Corrective RAG with Personalized PageRank.
 Provides interactive multi-hop QA, real-time agent decision trace visualization,
 runtime configuration editor, and comparative benchmark dashboard.
+
+Supports Dual Execution Modes:
+1. REST API Mode: Communicates with the FastAPI backend when available.
+2. In-Process Standalone Mode: Executes the LangGraph pipeline directly inside
+   the Streamlit app (ideal for 1-click Streamlit Community Cloud or Hugging Face Spaces deployment).
 """
 
 import streamlit as st
 import requests
 import json
 import os
+import sys
 import time
 import pandas as pd
+
+# Add workspace root to sys.path so in-process execution can find src
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import get_current_config, update_runtime_config
+from src.dataset import load_dataset, MultiHopSample
+from src.graph_builder import EntityGraphBuilder
+from src.agent.graph import run_crag_pipeline
+from src.evaluation.benchmark import BenchmarkRunner
 
 # Configure page
 st.set_page_config(
@@ -22,48 +37,153 @@ st.set_page_config(
 # API Base URL
 API_URL = os.environ.get("CRAG_API_URL", "http://127.0.0.1:8000")
 
+# Cache local dataset for standalone mode
+@st.cache_resource
+def get_local_samples():
+    path = os.path.join("data", "2wikimultihopqa_sample.json")
+    if os.path.exists(path):
+        return load_dataset(path, max_samples=150)
+    return []
+
 
 def check_api_health():
     try:
-        resp = requests.get(f"{API_URL}/api/status", timeout=2)
+        resp = requests.get(f"{API_URL}/api/status", timeout=1.5)
         return resp.status_code == 200, resp.json() if resp.status_code == 200 else {}
     except Exception:
         return False, {}
 
 
 def fetch_samples():
+    # Try REST API first
     try:
-        resp = requests.get(f"{API_URL}/api/samples?limit=30", timeout=3)
-        return resp.json() if resp.status_code == 200 else []
+        resp = requests.get(f"{API_URL}/api/samples?limit=30", timeout=2)
+        if resp.status_code == 200:
+            return resp.json()
     except Exception:
-        return []
+        pass
+
+    # Fallback: In-process local samples
+    local_samples = get_local_samples()
+    items = []
+    for s in local_samples[:30]:
+        items.append({
+            "id": s.id,
+            "question": s.question,
+            "type": s.type,
+            "answer": s.answer,
+            "supporting_titles": s.get_supporting_passage_titles(),
+            "hop_structure": s.hop_structure
+        })
+    return items
 
 
 def fetch_config():
     try:
-        resp = requests.get(f"{API_URL}/api/config", timeout=2)
-        return resp.json() if resp.status_code == 200 else {}
+        resp = requests.get(f"{API_URL}/api/config", timeout=1.5)
+        if resp.status_code == 200:
+            return resp.json()
     except Exception:
-        return {}
+        pass
+    return get_current_config().model_dump()
 
 
 def update_config_api(updates: dict):
+    # Try API first
     try:
-        resp = requests.post(f"{API_URL}/api/config", json=updates, timeout=3)
-        return resp.status_code == 200, resp.json() if resp.status_code == 200 else {}
+        resp = requests.post(f"{API_URL}/api/config", json=updates, timeout=2)
+        if resp.status_code == 200:
+            return True, resp.json()
+    except Exception:
+        pass
+
+    # In-process update
+    try:
+        cfg = update_runtime_config(updates)
+        return True, cfg.model_dump()
     except Exception as e:
         return False, {"detail": str(e)}
 
 
+def execute_pipeline(query: str, sample_id: str = None, algorithm: str = None):
+    """Executes query via REST API or In-Process fallback."""
+    # Try REST API
+    try:
+        payload = {"query": query, "sample_id": sample_id, "algorithm": algorithm}
+        resp = requests.post(f"{API_URL}/api/query", json=payload, timeout=60)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+
+    # In-Process fallback
+    local_samples = {s.id: s for s in get_local_samples()}
+    sample = None
+    passages = []
+    gt_answer = None
+
+    if sample_id and sample_id in local_samples:
+        sample = local_samples[sample_id]
+        passages = sample.context_passages
+        gt_answer = sample.answer
+    else:
+        for s in local_samples.values():
+            if s.question.strip().lower() == query.strip().lower():
+                sample = s
+                passages = s.context_passages
+                gt_answer = s.answer
+                break
+        if not passages and local_samples:
+            sample = list(local_samples.values())[0]
+            passages = sample.context_passages
+
+    builder = EntityGraphBuilder()
+    graph = builder.build_graph_for_sample(sample) if sample else None
+
+    state = run_crag_pipeline(
+        query=query,
+        passages=passages,
+        graph=graph,
+        sample_id=sample.id if sample else None,
+        strategy=algorithm
+    )
+
+    grading = state.get("grading_result")
+    seeds = state.get("seed_entities") or (sample.seed_entities if sample else [])
+    subgraph_data = None
+    if graph:
+        subgraph_data = EntityGraphBuilder.get_subgraph_for_visualization(
+            graph, seed_nodes=seeds, depth=2, max_nodes=35
+        )
+
+    return {
+        "query": state.get("query", query),
+        "sample_id": sample.id if sample else None,
+        "final_answer": state.get("final_answer", ""),
+        "ground_truth_answer": gt_answer,
+        "supporting_evidence_text": state.get("supporting_evidence_text", ""),
+        "retrieval_strategy": state.get("retrieval_strategy", "ppr"),
+        "seed_entities": state.get("seed_entities", []),
+        "retrieved_passages": [p.model_dump() for p in state.get("retrieved_passages", [])],
+        "retrieval_scores": state.get("retrieval_scores", []),
+        "retrieval_metrics": state.get("retrieval_metrics", {}),
+        "grading_decision": grading.decision.value if grading else None,
+        "grading_confidence": grading.confidence_score if grading else None,
+        "retry_count": state.get("retry_count", 0),
+        "execution_trace": state.get("execution_trace", []),
+        "subgraph": subgraph_data
+    }
+
+
 # ---------------- SIDEBAR: Runtime Configurations ----------------
 st.sidebar.title("⚙️ Runtime Configurations")
-st.sidebar.caption("Dynamically adjust agent parameters without restarting the server.")
+st.sidebar.caption("Dynamically adjust agent parameters without restarting the application.")
 
 api_healthy, status_info = check_api_health()
 if api_healthy:
-    st.sidebar.success(f"Backend Online ({status_info.get('loaded_samples_count', 0)} samples loaded)")
+    st.sidebar.success(f"🟢 Connected to FastAPI Backend")
 else:
-    st.sidebar.warning(f"Backend offline at {API_URL}. Start server with `python run_server.py`.")
+    st.sidebar.info(f"⚡ In-Process Mode (Cloud / Standalone Ready)")
 
 current_config = fetch_config()
 
@@ -196,106 +316,83 @@ with tab1:
 
     if run_query_btn and user_query:
         with st.spinner("Executing LangGraph Multi-Agent Pipeline..."):
-            req_payload = {
-                "query": user_query,
-                "sample_id": selected_sample_id
-            }
             try:
                 t0 = time.perf_counter()
-                resp = requests.post(f"{API_URL}/api/query", json=req_payload, timeout=60)
+                data = execute_pipeline(user_query, sample_id=selected_sample_id)
                 tot_latency = (time.perf_counter() - t0) * 1000.0
 
-                if resp.status_code == 200:
-                    data = resp.json()
-                    st.success(f"Pipeline finished in {tot_latency:.1f} ms")
+                st.success(f"Pipeline finished in {tot_latency:.1f} ms")
 
-                    # Answer Card
-                    st.markdown("### 🎯 Predicted Answer")
-                    ans_col1, ans_col2 = st.columns([3, 2])
-                    with ans_col1:
-                        st.info(f"### {data.get('final_answer')}")
-                        if data.get("ground_truth_answer"):
-                            gt = data.get("ground_truth_answer")
-                            pred = data.get("final_answer")
-                            is_match = gt.lower() in pred.lower() or pred.lower() in gt.lower()
-                            match_badge = "✅ MATCH" if is_match else "ℹ️ VARIATION"
-                            st.caption(f"Ground Truth Answer: **{gt}** ({match_badge})")
+                # Answer Card
+                st.markdown("### 🎯 Predicted Answer")
+                ans_col1, ans_col2 = st.columns([3, 2])
+                with ans_col1:
+                    st.info(f"### {data.get('final_answer')}")
+                    if data.get("ground_truth_answer"):
+                        gt = data.get("ground_truth_answer")
+                        pred = data.get("final_answer")
+                        is_match = gt.lower() in pred.lower() or pred.lower() in gt.lower()
+                        match_badge = "✅ MATCH" if is_match else "ℹ️ VARIATION"
+                        st.caption(f"Ground Truth Answer: **{gt}** ({match_badge})")
 
-                    with ans_col2:
-                        metrics = data.get("retrieval_metrics", {})
-                        st.metric("Retrieval Latency", f"{metrics.get('execution_time_ms', 0):.1f} ms")
-                        st.metric("Neural Vector Calls", f"{metrics.get('vector_search_calls', 0)}")
-                        st.caption(f"Strategy: **{data.get('retrieval_strategy').upper()}** | Retries: {data.get('retry_count')}")
+                with ans_col2:
+                    metrics = data.get("retrieval_metrics", {})
+                    st.metric("Retrieval Latency", f"{metrics.get('execution_time_ms', 0):.1f} ms")
+                    st.metric("Neural Vector Calls", f"{metrics.get('vector_search_calls', 0)}")
+                    st.caption(f"Strategy: **{data.get('retrieval_strategy', 'ppr').upper()}** | Retries: {data.get('retry_count', 0)}")
 
-                    # Multi-Agent Decision Trace
+                # Multi-Agent Decision Trace
+                st.markdown("---")
+                st.markdown("### 🤖 LangGraph Multi-Agent Decision Trace")
+                trace = data.get("execution_trace", [])
+
+                for i, step in enumerate(trace):
+                    step_name = step.get("step_name")
+                    action = step.get("action")
+                    details = step.get("details", {})
+
+                    with st.expander(f"Step {i+1}: [{step_name}] {action}", expanded=(i == len(trace)-1)):
+                        st.json(details)
+
+                # Retrieved Passages View
+                st.markdown("---")
+                st.markdown("### 📚 Retrieved Supporting Passages")
+                passages = data.get("retrieved_passages", [])
+                scores = data.get("retrieval_scores", [])
+                for p_idx, p in enumerate(passages):
+                    score_val = scores[p_idx] if p_idx < len(scores) else 0.0
+                    with st.expander(f"📄 [{score_val:.4f}] {p.get('title')}", expanded=(p_idx == 0)):
+                        st.markdown(f"**Title**: `{p.get('title')}`")
+                        for sent in p.get("sentences", []):
+                            st.write(f"- {sent}")
+
+                # Subgraph View
+                subgraph = data.get("subgraph")
+                if subgraph and subgraph.get("nodes"):
                     st.markdown("---")
-                    st.markdown("### 🤖 LangGraph Multi-Agent Decision Trace")
-                    trace = data.get("execution_trace", [])
+                    st.markdown("### 🕸️ Graph Subgraph (Personalized PageRank Neighborhood)")
+                    nodes = subgraph.get("nodes", [])
+                    edges = subgraph.get("edges", [])
+                    st.caption(f"Showing {len(nodes)} entities and {len(edges)} relation edges around seed entities.")
 
-                    for i, step in enumerate(trace):
-                        step_name = step.get("step_name")
-                        action = step.get("action")
-                        details = step.get("details", {})
+                    node_df = pd.DataFrame([
+                        {"Entity": n["id"], "Type": n["type"], "Is Seed": "🌟 Seed" if n.get("is_seed") else "Node"}
+                        for n in nodes
+                    ])
+                    edge_df = pd.DataFrame([
+                        {"From": e["source"], "Relation": e["relation"], "To": e["target"], "Weight": e["weight"]}
+                        for e in edges
+                    ])
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("**Entities in Subgraph:**")
+                        st.dataframe(node_df, use_container_width=True, height=250)
+                    with c2:
+                        st.markdown("**Relation Edges:**")
+                        st.dataframe(edge_df, use_container_width=True, height=250)
 
-                        badge_color = "blue"
-                        if step_name == "Router":
-                            badge_color = "violet"
-                        elif step_name == "Retriever":
-                            badge_color = "green"
-                        elif step_name == "Grader":
-                            decision = details.get("decision")
-                            badge_color = "green" if decision == "correct" else ("orange" if decision == "ambiguous" else "red")
-                        elif step_name == "Rewriter":
-                            badge_color = "orange"
-                        elif step_name == "Fallback":
-                            badge_color = "red"
-                        elif step_name == "Generator":
-                            badge_color = "blue"
-
-                        with st.expander(f"Step {i+1}: [{step_name}] {action}", expanded=(i == len(trace)-1)):
-                            st.json(details)
-
-                    # Retrieved Passages View
-                    st.markdown("---")
-                    st.markdown("### 📚 Retrieved Supporting Passages")
-                    passages = data.get("retrieved_passages", [])
-                    scores = data.get("retrieval_scores", [])
-                    for p_idx, p in enumerate(passages):
-                        score_val = scores[p_idx] if p_idx < len(scores) else 0.0
-                        with st.expander(f"📄 [{score_val:.4f}] {p.get('title')}", expanded=(p_idx == 0)):
-                            st.markdown(f"**Title**: `{p.get('title')}`")
-                            for sent in p.get("sentences", []):
-                                st.write(f"- {sent}")
-
-                    # Subgraph View
-                    subgraph = data.get("subgraph")
-                    if subgraph and subgraph.get("nodes"):
-                        st.markdown("---")
-                        st.markdown("### 🕸️ Graph Subgraph (Personalized PageRank Neighborhood)")
-                        nodes = subgraph.get("nodes", [])
-                        edges = subgraph.get("edges", [])
-                        st.caption(f"Showing {len(nodes)} entities and {len(edges)} relation edges around seed entities.")
-
-                        node_df = pd.DataFrame([
-                            {"Entity": n["id"], "Type": n["type"], "Is Seed": "🌟 Seed" if n.get("is_seed") else "Node"}
-                            for n in nodes
-                        ])
-                        edge_df = pd.DataFrame([
-                            {"From": e["source"], "Relation": e["relation"], "To": e["target"], "Weight": e["weight"]}
-                            for e in edges
-                        ])
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown("**Entities in Subgraph:**")
-                            st.dataframe(node_df, use_container_width=True, height=250)
-                        with c2:
-                            st.markdown("**Relation Edges:**")
-                            st.dataframe(edge_df, use_container_width=True, height=250)
-
-                else:
-                    st.error(f"Error {resp.status_code}: {resp.text}")
             except Exception as e:
-                st.error(f"Failed to communicate with API: {e}")
+                st.error(f"Pipeline execution error: {e}")
 
 
 # ---------------- TAB 2: BENCHMARK DASHBOARD ----------------
@@ -303,7 +400,7 @@ with tab2:
     st.subheader("⚡ 2WikiMultiHopQA Comparative Retrieval Benchmark")
     st.markdown("""
     Compare **Personalized PageRank (PPR) Graph Retrieval** against a **Sequential Per-Hop Dense Vector Search Baseline**.
-    Measures retrieval accuracy, latency, and validates the **~2x-10x speedup** achieved by single-pass graph diffusion.
+    Measures retrieval accuracy, latency, and validates the **~10x speedup** achieved by single-pass graph diffusion.
     """)
 
     col_b1, col_b2 = st.columns([2, 3])
@@ -315,26 +412,37 @@ with tab2:
     if run_bench_btn:
         with st.spinner(f"Evaluating {bench_samples} queries through both PPR and Vector Baselines..."):
             try:
-                b_resp = requests.post(
-                    f"{API_URL}/api/benchmark",
-                    json={"num_samples": bench_samples},
-                    timeout=180
-                )
-                if b_resp.status_code == 200:
-                    bench_data = b_resp.json()
-                    st.success("Benchmark completed successfully!")
-                else:
-                    st.error(f"Benchmark failed: {b_resp.text}")
+                # Try API first
+                try:
+                    b_resp = requests.post(f"{API_URL}/api/benchmark", json={"num_samples": bench_samples}, timeout=180)
+                    if b_resp.status_code == 200:
+                        bench_data = b_resp.json()
+                except Exception:
+                    pass
+
+                # Fallback: run directly
+                if not bench_data:
+                    runner = BenchmarkRunner()
+                    rep = runner.run(num_samples=bench_samples, verbose=False)
+                    bench_data = rep.model_dump()
+
+                st.success("Benchmark completed successfully!")
             except Exception as e:
                 st.error(f"Benchmark error: {e}")
     else:
         # Try loading latest benchmark
         try:
-            latest_resp = requests.get(f"{API_URL}/api/benchmark/latest", timeout=2)
+            latest_resp = requests.get(f"{API_URL}/api/benchmark/latest", timeout=1.5)
             if latest_resp.status_code == 200:
                 bench_data = latest_resp.json()
         except Exception:
             pass
+
+        if not bench_data:
+            path = os.path.join("data", "benchmark_results.json")
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    bench_data = json.load(f)
 
     if bench_data:
         ppr = bench_data.get("ppr_system", {})

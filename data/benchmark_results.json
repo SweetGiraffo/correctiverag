@@ -1,0 +1,167 @@
+{
+  "num_samples": 5,
+  "ppr_system": {
+    "name": "Personalized PageRank (PPR)",
+    "exact_match_pct": 20.0,
+    "f1_score_pct": 20.0,
+    "retrieval_recall_pct": 100.0,
+    "avg_latency_ms": 193.76,
+    "avg_vector_calls": 0.0
+  },
+  "vector_baseline": {
+    "name": "Baseline Per-Hop Vector Search",
+    "exact_match_pct": 0.0,
+    "f1_score_pct": 0.0,
+    "retrieval_recall_pct": 70.0,
+    "avg_latency_ms": 2138.36,
+    "avg_vector_calls": 2.0
+  },
+  "speedup_ratio": 11.04,
+  "samples_detail": [
+    {
+      "id": "8813f87c0bdd11eba7f7acde48001122",
+      "question": "Who is the mother of the director of film Polish-Russian War (Film)?",
+      "answer": "Małgorzata Braunek",
+      "ppr": {
+        "answer": "Małgorzata Braunek",
+        "em": 1.0,
+        "f1": 1.0,
+        "recall": 1.0,
+        "latency_ms": 903.7,
+        "retrieved_titles": [
+          "Xawery Żuławski",
+          "Polish-Russian War (film)",
+          "Viktor Yeliseyev"
+        ]
+      },
+      "vector_baseline": {
+        "answer": "Xawery Żuławski",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 1.0,
+        "latency_ms": 8248.21,
+        "retrieved_titles": [
+          "Polish-Russian War (film)",
+          "Xawery Żuławski",
+          "Viktor Yeliseyev"
+        ]
+      }
+    },
+    {
+      "id": "e2a3bf2a0bdd11eba7f7acde48001122",
+      "question": "When did John V, Prince Of Anhalt-Zerbst's father die?",
+      "answer": "12 June 1516",
+      "ppr": {
+        "answer": "John V of",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 1.0,
+        "latency_ms": 15.86,
+        "retrieved_titles": [
+          "John V, Prince of Anhalt-Zerbst",
+          "John VI, Prince of Anhalt-Zerbst",
+          "Ernest I, Prince of Anhalt-Dessau"
+        ]
+      },
+      "vector_baseline": {
+        "answer": "John VI",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 0.5,
+        "latency_ms": 464.86,
+        "retrieved_titles": [
+          "John VI, Prince of Anhalt-Zerbst",
+          "John II, Prince of Anhalt-Zerbst",
+          "John V, Prince of Anhalt-Zerbst"
+        ]
+      }
+    },
+    {
+      "id": "0cd3bdea0bde11eba7f7acde48001122",
+      "question": "What is the award that the director of film Wearing Velvet Slippers Under A Golden Umbrella won?",
+      "answer": "Myanmar Motion Picture Academy Awards",
+      "ppr": {
+        "answer": "Maung Wunna",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 1.0,
+        "latency_ms": 19.68,
+        "retrieved_titles": [
+          "Wearing Velvet Slippers under a Golden Umbrella",
+          "Wunna",
+          "Etan Boritzer"
+        ]
+      },
+      "vector_baseline": {
+        "answer": "Maung Wunna",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 0.5,
+        "latency_ms": 591.88,
+        "retrieved_titles": [
+          "Wearing Velvet Slippers under a Golden Umbrella",
+          "Michael Govan",
+          "Ian Barry (director)"
+        ]
+      }
+    },
+    {
+      "id": "f9dcb4a60bda11eba7f7acde48001122",
+      "question": "Where was the director of film Ronnie Rocket born?",
+      "answer": "Missoula, Montana",
+      "ppr": {
+        "answer": "David Lynch",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 1.0,
+        "latency_ms": 10.09,
+        "retrieved_titles": [
+          "Ronnie Rocket",
+          "David Lynch",
+          "Jason Moore (director)"
+        ]
+      },
+      "vector_baseline": {
+        "answer": "David Lynch",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 0.5,
+        "latency_ms": 649.92,
+        "retrieved_titles": [
+          "Ronnie Rocket",
+          "Peter Levin",
+          "Brian Kennedy (gallery director)"
+        ]
+      }
+    },
+    {
+      "id": "019bed300bde11eba7f7acde48001122",
+      "question": "Where was the father of Ștefan I. Nenițescu born?",
+      "answer": "Galați",
+      "ppr": {
+        "answer": "Ioan S. Nenițescu",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 1.0,
+        "latency_ms": 19.45,
+        "retrieved_titles": [
+          "Ștefan I. Nenițescu",
+          "Ioan S. Nenițescu",
+          "Eystein Glumra"
+        ]
+      },
+      "vector_baseline": {
+        "answer": "Ștefan Vasiliu",
+        "em": 0.0,
+        "f1": 0.0,
+        "recall": 1.0,
+        "latency_ms": 736.93,
+        "retrieved_titles": [
+          "Ioan S. Nenițescu",
+          "Ștefan I. Nenițescu",
+          "Obata Toramori"
+        ]
+      }
+    }
+  ]
+}

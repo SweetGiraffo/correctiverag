@@ -1,11 +1,14 @@
 """
 LangGraph CRAG Pipeline State Definition.
+Supports both legacy text passages and unified multimodal chunks across text, PDF tables, images, and audio.
 """
 
 from typing import List, Dict, Any, Optional, TypedDict
 import networkx as nx
 from src.dataset import Passage
+from src.retrieval.models import RetrievedChunk
 from src.crag.grader import CRAGGradingResult
+from src.crag.evaluator import ContextSufficiencyResult
 
 
 class ExecutionStep(TypedDict):
@@ -22,18 +25,22 @@ class CRAGState(TypedDict, total=False):
     sample_id: Optional[str]
     passages: List[Passage]
     graph: Optional[nx.DiGraph]
+    vector_store: Optional[Any]
+    graph_store: Optional[Any]
 
     # Strategy & Seeds
     retrieval_strategy: str
     seed_entities: List[str]
 
-    # Retrieval outputs
+    # Retrieval outputs (passages and multimodal chunks)
     retrieved_passages: List[Passage]
+    retrieved_chunks: List[RetrievedChunk]
     retrieval_scores: List[float]
     retrieval_metrics: Dict[str, Any]
 
-    # CRAG Evaluation
+    # CRAG Grading & Sufficiency Evaluation
     grading_result: Optional[CRAGGradingResult]
+    evaluation_result: Optional[ContextSufficiencyResult]
     retry_count: int
     max_retries: int
 
@@ -41,3 +48,4 @@ class CRAGState(TypedDict, total=False):
     execution_trace: List[ExecutionStep]
     final_answer: str
     supporting_evidence_text: str
+    citations: List[str]

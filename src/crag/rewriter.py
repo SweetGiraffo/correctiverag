@@ -37,10 +37,18 @@ class CRAGQueryRewriter:
                 except Exception:
                     self.nlp = spacy.blank("en")
 
+    @staticmethod
+    def _get_title(item: Any) -> str:
+        if hasattr(item, "title"):
+            return item.title
+        if hasattr(item, "metadata") and isinstance(item.metadata, dict):
+            return item.metadata.get("source_file", "Document")
+        return str(item)
+
     def rewrite(
         self,
         query: str,
-        retrieved_passages: List[Passage],
+        retrieved_passages: List[Any],
         iteration: int = 1
     ) -> RewriteResult:
         """
@@ -49,10 +57,18 @@ class CRAGQueryRewriter:
         self._ensure_nlp()
         extracted_bridges: List[str] = []
 
-        # 1. Identify potential bridge entities from top passages
-        for p in retrieved_passages[:2]:
-            if self.nlp:
-                doc = self.nlp(p.text[:400])
+        # 1. Identify potential bridge entities from top passages/chunks
+        for p in retrieved_passages[:3]:
+            # If chunk already has extracted entities, use them
+            if hasattr(p, "entities") and isinstance(p.entities, list):
+                for ent_str in p.entities:
+                    if len(ent_str) > 2 and ent_str.lower() not in query.lower():
+                        extracted_bridges.append(ent_str)
+
+            # Also run NER on raw text snippet
+            text_snippet = getattr(p, "text", "")[:400]
+            if self.nlp and text_snippet:
+                doc = self.nlp(text_snippet)
                 for ent in doc.ents:
                     ent_str = ent.text.strip()
                     if len(ent_str) > 2 and ent_str.lower() not in query.lower():
@@ -91,7 +107,9 @@ class CRAGQueryRewriter:
             strategy = "comparison_splitting"
             # Highlight key entities
             if len(retrieved_passages) >= 2:
-                rewritten = f"{query} [Focus: {retrieved_passages[0].title} and {retrieved_passages[1].title}]"
+                t0 = self._get_title(retrieved_passages[0])
+                t1 = self._get_title(retrieved_passages[1])
+                rewritten = f"{query} [Focus: {t0} and {t1}]"
             else:
                 rewritten = f"{query} [Detailed timeline and attributes]"
 
@@ -101,7 +119,8 @@ class CRAGQueryRewriter:
                 rewritten = f"{query} (related to {', '.join(unique_bridges[:2])})"
                 strategy = "contextual_bridge_expansion"
             elif retrieved_passages:
-                rewritten = f"{query} {retrieved_passages[0].title}"
+                t0 = self._get_title(retrieved_passages[0])
+                rewritten = f"{query} {t0}"
                 strategy = "title_anchoring"
 
         return RewriteResult(
@@ -110,3 +129,4 @@ class CRAGQueryRewriter:
             strategy=strategy,
             extracted_bridge_candidates=unique_bridges
         )
+

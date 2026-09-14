@@ -42,6 +42,12 @@ class RuntimeConfig(BaseModel):
         le=1.0,
         description="Lower threshold: context between low and high is AMBIGUOUS (triggers rewrite); below is INCORRECT (triggers fallback)"
     )
+    sufficiency_threshold: float = Field(
+        default=0.60,
+        ge=0.0,
+        le=1.0,
+        description="Minimum ratio of relevant retrieved chunks required to proceed to generation without query rewriting"
+    )
     max_retries: int = Field(
         default=2,
         ge=0,

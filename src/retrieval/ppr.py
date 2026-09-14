@@ -120,12 +120,15 @@ class MultimodalPPRRetriever:
         vector_store: QdrantStore,
         top_k_nodes: int = 5,
         top_k_chunks: int = 5,
-        alpha: Optional[float] = None
+        alpha: Optional[float] = None,
+        top_k: Optional[int] = None
     ) -> MultimodalRetrievalResult:
         """
         Executes Personalized PageRank retrieval over the multimodal graph.
         Returns top-ranked nodes and backing cross-modal chunks with base64 images.
         """
+        if top_k is not None:
+            top_k_chunks = top_k
         start_time = time.perf_counter()
         active_alpha = alpha if alpha is not None else self.alpha
 

@@ -68,3 +68,32 @@ def test_api_query_endpoint(client):
     assert res_data["final_answer"] != ""
     assert len(res_data["execution_trace"]) >= 4
     assert len(res_data["retrieved_passages"]) > 0
+
+
+def test_api_graph_stats_and_subgraph(client):
+    res = client.get("/api/graph/stats")
+    assert res.status_code == 200
+    data = res.json()
+    assert "total_nodes" in data
+    assert "total_edges" in data
+
+    sub_res = client.get("/api/graph/subgraph")
+    assert sub_res.status_code == 200
+    sub_data = sub_res.json()
+    assert "nodes" in sub_data
+    assert "edges" in sub_data
+
+
+def test_api_ingest_file(client, tmp_path):
+    # Create sample text file to ingest
+    sample_file = tmp_path / "executive_update.txt"
+    sample_file.write_text("QuantumAI announced new enterprise revenue targets for Project Titan in Q3.", encoding="utf-8")
+
+    with open(sample_file, "rb") as f:
+        res = client.post("/api/ingest", files={"file": ("executive_update.txt", f, "text/plain")})
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["chunks_count"] >= 1
+    assert "graph_stats" in data

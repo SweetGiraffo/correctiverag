@@ -17,6 +17,9 @@ htmlcov/
 # Data binaries (large files - download with python data/download_data.py)
 data/*.parquet
 *.parquet
+data/qdrant_db/
+qdrant_data/
+*.pkl
 
 # Streamlit
 .streamlit/
